@@ -1,0 +1,426 @@
+/*
+ * My ex1 solution wasn't able to solve the loopy maze because it follows the same path multiple
+ * times, meaningn it goes to a branch back up and down without changing the nodes that it needs to
+ * explore. Thus, in loopy mazes it will get stuckk repeating the same route at a point over and
+ * over again. Especially for the first route of the maze which it took. This is because all the
+ * explored junctions are saved and the robot thinks that the one it has it's already good.
+ *
+ * In my ex2 this behaviour of ending up looping the same short path that doesn't reach the goal is
+ * avoided because of the implementation. It follows the needed algorithm for solving the loopy
+ * the loopy maze. It searches down a branch of a tree until it reaches an end, then exploring
+ * different branches and so on until the target is reached. It avoids looping infinitely through a
+ * short path because after a branch is searched it is clear that it isn't the right one to the
+ * target, therefore I delete that one so the robot doesn't end up searching it again and getting
+ * stuck within it. Therefore this exercise 3 robot is the same with the one from exercise 2, which
+ * is solving single and multiple loops as well.
+ *
+ * For making sure that everything is running all right I used different prints throughout the code
+ * to see how the methods are called and if the variables update how they were supposed to. I will
+ * add the printJunction method here because I liked how I made it and to have a proof that I
+ * really used it. All the testing was done with all 4 maze generators and various maze dimensions.
+ *
+ * // Print the number of the junction, its coordinates and the heading the robot was facing
+ * private void printJunction() {
+ *    // Array of strings with the possible headings
+ *    String[] headings = {"NORTH", "EAST", "SOUTH", "WEST"};
+ *    // Last index of the arraylist
+ *    int lastIndex = junctionRecorder.juncX.size() - 1;
+ *    System.out.print("Junction " + lastIndex + " (x=" + junctionRecorder.juncX.get(lastIndex) +
+ *                     ", y=" + junctionRecorder.juncY.get(lastIndex) + ") heading ");
+ *    // Iterate through the array of possible headings to determine the robot's heading
+ *    for (int i = 0; i < headings.length; i++) {
+ *      // Being 4 possible headings use modulo 4 to decide which of the heading to print
+ *      if (junctionRecorder.arrived.get(lastIndex) % 4 == i) {
+ *        System.out.println(headings[i]);
+ *      }
+ *    }
+ *  }
+ *
+ */
+
+import uk.ac.warwick.dcs.maze.logic.IRobot;
+import java.util.ArrayList;
+
+public class Ex3 {
+
+  private int pollRun = 0; // Incremented after each pass
+  private RobotData robotData; // Data store for junctions
+  private int explorerMode = 1; // 1 = explore, 0 = backtrack
+
+  public void controlRobot(IRobot robot) {
+    // On the first move of the first run of a new maze
+    if ((robot.getRuns() == 0) && (pollRun == 0)) {
+      // Reset the robot data stored by initialising the robotdata class
+      robotData = new RobotData();
+      // Make sure the correct default behaviour is chosen in the beginning
+      explorerMode = 1;
+    }
+    // Choose the right behaviour based on the exploreMode value: 1 = explore, 0 = backtrack
+    if (explorerMode == 1) {
+      exploreControl(robot);
+    } else {
+      backtrackControl(robot);
+    }
+    // Increment pollRun so that the data is not reset each time the robot moves
+    pollRun++;
+
+  }
+
+  // Implement the explore behaviour
+  private void exploreControl(IRobot robot) {
+    // If the junction has not been recorded yet, save it in the robotData with the robot heading
+    if (robotData.recordJunctionChecker(nonwallExits(robot), robot) == true) {
+      robotData.recordJunction(robot.getLocation().x, robot.getLocation().y,
+                               robot.getHeading());
+    }
+    // Choose the right situation the robot is in and make it face the correct direction
+    robot.face(chooseSituation(nonwallExits(robot), robot));
+    // If the robot is at a deadend and it's not the starting point, switch to backtracking
+    if ((nonwallExits(robot) < 2) && (robotData.junctionRecorder.arrived.size() != 0)) {
+      explorerMode = 0;
+      backtrackControl(robot);
+    }
+  }
+
+  // Implement the backtrack behaviour
+  private void backtrackControl(IRobot robot) {
+    // If the robot is in a junction, decide whether it needs to backtrack or explore
+    if (nonwallExits(robot) > 2) {
+      // If there are any unvisited exits at the junction switch back to exploring
+      if (passageExits(robot) > 0) {
+        exploreControl(robot);
+        explorerMode = 1;
+        // If there aren't any unvisited exits backtrack the robot the way it firstly came through
+      } else {
+        robot.face(translateHeadingToTurn(robot, reverseHeading(robotData.searchJunction(
+                                            robot.getLocation().x, robot.getLocation().y))));
+        /*
+         * After the robot reversed through a junction, it will never come back therefore remove
+         * the last element from the arraylist
+         */
+        robotData.removeJunction();
+      }
+      // If the robot is not in a junction, backtrack straight through the corridor or choose a turn
+    } else {
+      robot.face(chooseSituation(nonwallExits(robot), robot));
+    }
+  }
+
+  /*
+   * To turn the robot to a desired heading get the relative direction it needs to face.
+   * Relative directions (ahead, right, behind, left) are implemented as ahead, ahead + 1 and so on
+   */
+  private int translateHeadingToTurn(IRobot robot, int heading) {
+    // Firstly calculate the difference between the desired heading and the current one
+    int difference = heading - robot.getHeading();
+    // Based on the difference being negative or positive there are 2 possibilities
+    if (difference >= 0) {
+      // When positive just add to the difference ahead and will get the right direction
+      return IRobot.AHEAD + difference;
+    } else {
+      // When negative you need to add 4 as well
+      return IRobot.AHEAD + 4 + difference;
+    }
+  }
+
+  // Reverse the heading it first had when passing a junction
+  private int reverseHeading(int heading) {
+    /*
+     * The headings north, east, south, west are implemented as north, north + 1 and so on.
+     * To calculate the opposite heading, add 2 to the current one, apply modulo 4 (there are 4
+     * headings, thus use modulo 4) and then add north to get the right number
+     */
+    return (heading + 2) % 4 + IRobot.NORTH;
+  }
+
+  // Reset the explore mode variable to the default value (1 = explore)
+  private void resetExplorerMode() {
+    explorerMode = 1;
+  }
+
+  /*
+   * Based on the number of exits available to the robot determine the correct type of situation
+   * it is in and extend the right method. This will ensure that the correct behaviour is present
+   */
+  private int chooseSituation(int exits, IRobot robot) {
+    if (exits < 2) {
+      return deadEnd(robot);
+    } else if (exits == 2) {
+      return corridor(robot);
+    } else if (exits == 3) {
+      return junction(robot);
+    } else {
+      return crossroads(robot);
+    }
+  }
+
+  // Search for the only way a robot can go when it is in a deadend
+  private int deadEnd(IRobot robot) {
+    /*
+     * Iterate through all relative directions of the robot ahead, right, behind, left
+     * which we know that are encoded as ahead, ahead + 1 and so on
+     */
+    for (int i = IRobot.AHEAD; i < IRobot.LEFT + 1; i++) {
+      /*
+       * Using the method robot.look() implemented in the maze interface look for the relative
+       * direction where there is not a wall and return it
+       */
+      if (robot.look(i) != IRobot.WALL) {
+        return i;
+      }
+    }
+
+    return 0;
+  }
+
+  /*
+   * Being 2 possibilities for a corridor, check if the robot can move forward or it is at a turn
+   * and needs to find if it's a left or a right
+   */
+  private int corridor(IRobot robot) {
+    // If in the front of the robot there is not a wall, it needs to go straight forward
+    if (robot.look(IRobot.AHEAD) != IRobot.WALL) {
+      return IRobot.AHEAD;
+    } else {
+      /*
+       * If in the front of the robot there is a wall, it means it is at a turn and needs to find
+       * it. Iterate through relative directions of the robot right and left which we know that
+       * are encoded as right and right + 2
+       */
+      for (int i = IRobot.RIGHT; i < IRobot.LEFT + 1; i += 2) {
+        /*
+         * Use the method robot.look() implemented in the maze interface to look for the relative
+         * direction where there is not a wall and return it
+         */
+        if (robot.look(i) != IRobot.WALL) {
+          return i;
+        }
+      }
+    }
+
+    return 0;
+  }
+
+  /*
+   * When the robot arrives at a junction, it needs to check if there are any exits not visited
+   * and then choose one randomly if there are more. If there are none, it will choose randomly
+   * between the exits that it has visited already
+   */
+  private int junction(IRobot robot) {
+    // check if there are unvisited exits with passageExits, then choose randomly between them
+    if (passageExits(robot) != 0) {
+      return chooseRandomExit(robot, IRobot.PASSAGE);
+    } else {
+      // if there aren't any unvisited exits, choose randomly between visited exits
+      return chooseRandomExit(robot, IRobot.BEENBEFORE);
+    }
+  }
+
+  /*
+   * The same behaviour from junction method is needed for the crossroads method because they are
+   * just junctions with one more exit, therefore when a crossroad is met, extend junction method
+   */
+  private int crossroads(IRobot robot) {
+    return junction(robot);
+  }
+
+  /*
+   * Taking as a parameter exitType, meaning beenbefore or passage, choose randomly the available
+   * exit from the junction, visited or unvisited
+   */
+  private int chooseRandomExit(IRobot robot, int exitType) {
+    int randomNumber;
+    // array list of integers that will contain possible exits
+    ArrayList<Integer> exits = new ArrayList<Integer>();
+    /*
+     * Iterate through all relative directions of the robot ahead, right, behind, left
+     * which are encoded as ahead, ahead + 1 and so on
+     */
+    for (int i = IRobot.AHEAD; i < IRobot.LEFT + 1; i++) {
+      /*
+       * Use the method robot.look(), implemented in the maze interface, to check if the type of
+       * the square is of exitType (beenbefore or passage) and add to the list when there's a match
+       */
+      if (robot.look(i) == exitType) {
+        exits.add(i);
+      }
+    }
+    /*
+     * There are a number of 1 to 4 possible exits for a junction, thus get a random number between
+     * 0 and 3 to choose a random exit from the list. Use the size of the list (0 to 3), multiply
+     * by a random generated real number from 0 to 1 and then floor. This will ensure a natural
+     * number in the (0,3) interval.
+     *
+     */
+    randomNumber = (int) Math.floor(Math.random() * exits.size());
+    // Return from the array list the random selected exit of exitType for the junction
+    return exits.get(randomNumber);
+
+  }
+
+  /*
+   * When the robot is at a junction, count how many of the exits haven't been searched already
+   * The type of square to look for is encoded as passage in the maze interface.
+   */
+  private int passageExits(IRobot robot) {
+
+    int numberOfPassage = 0;
+    /*
+     * Iterate through all relative directions of the robot ahead, right, behind, left
+     * which we know that are encoded as ahead, ahead + 1 and so on
+     */
+    for (int i = IRobot.AHEAD; i < IRobot.LEFT + 1; i++) {
+      /*
+       * Use the method robot.look(), implemented in the maze interface, to check if the type of
+       * the square is passage (unvisited) and increase the counter when there's a match
+       */
+      if (robot.look(i) == IRobot.PASSAGE) {
+        numberOfPassage++;
+      }
+    }
+
+    return numberOfPassage;
+  }
+
+  /*
+   * Count how many nonwallExist there are at a junction (square needs to be
+   * visited or never visited in every direction with an exit)
+   */
+  private int nonwallExits(IRobot robot) {
+
+    int numberOfWalls = 0;
+    /*
+     * Iterate through all relative directions of the robot ahead, right, behind, left
+     * which are encoded as ahead, ahead + 1 and so on
+     */
+    for (int i = IRobot.AHEAD; i < IRobot.LEFT + 1; i++) {
+      /*
+       * There are 2 types of nonwallExists (visited and not visited), use the method
+       * robot.look(), implemented in the maze interface to check if the type of the square
+       * is wall and increase the counter when there's a match
+       */
+      if (robot.look(i) == IRobot.WALL) {
+        numberOfWalls ++;
+      }
+    }
+    /*
+     * Because the wall exits were counted, subtract, from the total possible number of exits,
+     * which is 4, the number of them that are wall. Therefore find the number of nonWallExits
+     */
+    return 4 - numberOfWalls;
+  }
+
+  /*
+   * When the robot is at a junction, count how many of the exits have been searched already.
+   * The type of square that the method looks for is encoded as beenbefore in the maze interface.
+   */
+  private int beenbeforeExits(IRobot robot) {
+
+    int numberOfBeenbefore = 0;
+    /*
+     * Iterate through all relative directions of the robot ahead, right, behind, left
+     * which are encoded as ahead, ahead + 1 and so on
+     */
+    for (int i = IRobot.AHEAD; i < IRobot.LEFT + 1; i++) {
+      /*
+       * Use the method robot.look(), implemented in the maze interface, to check if the type of
+       * the square is beenbefore (visited) and increase the counter when there's a match
+       */
+      if (robot.look(i) == IRobot.BEENBEFORE) {
+        numberOfBeenbefore ++;
+      }
+    }
+
+    return numberOfBeenbefore;
+  }
+
+  private class RobotData {
+
+    private JunctionRecorder junctionRecorder; // JunctionRecorder object
+
+    // RobotData constructor, initializes the JuncitonRecorder object
+    private RobotData() {
+      this.junctionRecorder = new JunctionRecorder();
+    }
+
+    private class JunctionRecorder {
+      ArrayList<Integer> juncX; // X-coordinate of the junctions
+      ArrayList<Integer> juncY; // Y-coordinate of the junctions
+      ArrayList<Integer> arrived; // Heading the robot first arrived from
+
+      // Constructor for JunctionRecorder, initialize all the arraylists
+      private JunctionRecorder() {
+        this.juncX = new ArrayList<Integer>();
+        this.juncY = new ArrayList<Integer>();
+        this.arrived = new ArrayList<Integer>();
+      }
+    }
+
+    /*
+     * Record the heading the robot was facing when first encountering the junction and the
+     * X and Y coordinates of it using the arraylists
+     */
+    private void recordJunction(int junctionCoordinateX, int junctionCoordinateY, int heading) {
+      junctionRecorder.juncX.add(junctionCoordinateX);
+      junctionRecorder.juncY.add(junctionCoordinateY);
+      junctionRecorder.arrived.add(heading);
+    }
+
+    /*
+     * Check when a robot is passing a junction if it was previously recorded and return true
+     * if it's a new junctions, otherwise false
+     */
+    private boolean recordJunctionChecker(int exits, IRobot robot) {
+      // Make sure it is a junction by having 3 or 4 exits
+      if (exits == 3 || exits == 4) {
+        // if there are no recorded junction save it
+        if (junctionRecorder.juncX.size() - 1 == -1) {
+          return true;
+          // Compare if X and Y coordinates are the same with the last junction already recorded
+        } else if (junctionRecorder.juncX.get(junctionRecorder.juncX.size() - 1) ==
+                   robot.getLocation().x &&
+                   junctionRecorder.juncY.get(junctionRecorder.juncY.size() - 1) ==
+                   robot.getLocation().y) {
+          return false;
+        }
+        return true;
+      }
+      return false;
+    }
+
+    /*
+     * Search through the recorded junctions which of them the robot came back to return the
+     * initial heading it had
+     */
+    private int searchJunction(int junctionCoordinateX, int junctionCoordinateY) {
+      // Find the correct junction by comparing the current X and Y coordinates to the others'
+      if (junctionRecorder.juncX.get(junctionRecorder.juncX.size() - 1) == junctionCoordinateX &&
+          junctionRecorder.juncY.get(junctionRecorder.juncY.size() - 1) == junctionCoordinateY) {
+        return junctionRecorder.arrived.get(junctionRecorder.juncX.size() - 1);
+      }
+      return -1;
+    }
+
+    // Remove the last element of every arraylist from junctionRecorder
+    private void removeJunction() {
+      junctionRecorder.juncX.remove(junctionRecorder.juncX.size() - 1);
+      junctionRecorder.juncY.remove(junctionRecorder.juncY.size() - 1);
+      junctionRecorder.arrived.remove(junctionRecorder.arrived.size() - 1);
+    }
+
+    // After each run, reset the JunctionRecorder data
+    private void resetJunctionRecorder() {
+      junctionRecorder = new JunctionRecorder();
+    }
+  }
+
+  /*
+   * When pressing the Reset button in the maze interface call this method and use it to make
+   * sure it resets the JunctionRecorder object and explore mode variable to default (explore)
+   */
+  public void reset() {
+    resetExplorerMode();
+    robotData.resetJunctionRecorder();
+  }
+
+}
